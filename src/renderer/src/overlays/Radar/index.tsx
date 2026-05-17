@@ -12,6 +12,7 @@ import {
   computeRelativeGap,
   computeReferenceLapTime,
 } from '../Relative/lib'
+import { assignLanes } from './lib'
 import styles from './Radar.module.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -108,18 +109,15 @@ export default function Radar() {
   const hasLeft  = clr === CLR_LEFT  || clr === CLR_BOTH || clr === CLR_2_LEFT
   const hasRight = clr === CLR_RIGHT || clr === CLR_BOTH || clr === CLR_2_RIGHT
 
-  // Assign lane positions: cars that are very close get left/right based on CarLeftRight signal
-  const closeAhead  = nearby.filter((e) => e.gap < 0  && Math.abs(e.gap) < 2)
-  const closeBehind = nearby.filter((e) => e.gap >= 0 && e.gap < 2)
-
-  function laneFor(entry: typeof nearby[0]): number {
-    const isClose = Math.abs(entry.gap) < 2
-    if (!isClose) return LANE.centre
-    // Try to assign left/right based on proximity flag for the closest cars
-    const idx = closeAhead.concat(closeBehind).indexOf(entry)
-    if (hasLeft && idx === 0) return LANE.left
-    if (hasRight && (idx === 1 || (idx === 0 && !hasLeft))) return LANE.right
-    return LANE.centre
+  // Lane assignment is pure logic in ./lib so it can be unit-tested directly.
+  // See `assignLanes` for the why behind picking by |gap| instead of signed
+  // sort order (the latter caused bug #67 — wrong car shown next to player
+  // when 2+ cars were close).
+  const laneMap = assignLanes(nearby, hasLeft, hasRight)
+  const LANE_X: Record<'left' | 'centre' | 'right', number> = {
+    left:   LANE.left,
+    centre: LANE.centre,
+    right:  LANE.right,
   }
 
   const centreY = TOTAL_H / 2
@@ -181,7 +179,7 @@ export default function Radar() {
           {/* ── Opponent cars ── */}
           {nearby.map((entry) => {
             const { car, gap } = entry
-            const cx   = laneFor(entry)
+            const cx   = LANE_X[laneMap.get(car.carIdx) ?? 'centre']
             // Centre-lane cars share the player's x, so clamp y so their box
             // never overlaps the player's: minimum centre-to-centre distance
             // is CAR_H (boxes just touch).  Side-lane cars are offset

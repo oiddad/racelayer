@@ -194,6 +194,7 @@ This was the v0.1.3 fix for overlays appearing in menus. Re-verify on every rele
 
 - [ ] **In a live iRacing pack** — when a car comes alongside, the matching edge of the Radar lights amber. (Pre-v0.1.4 this was off by one: "clear" rendered as "car on left". Verify in a real session, not mock data.)
 - [ ] **Mock data sanity** — in preview mode, the side-edge highlight alternates between left and right as the mock cycles `CarLeftRight` through 2 → 3 → 4 → 5 → 6.
+- [ ] **Multi-car proximity (#67)** — when 2+ cars are within ±2s and `CarLeftRight` reports a car alongside, the Radar puts the **physically closest** car in the side lane, not the furthest-ahead one. Verify in a practice session by getting one car ~0.1s alongside while another sits ~0.5s ahead in the same direction; the closer car's number is the one that appears in the side lane.
 
 ### Perf HUD (issue #32)
 
