@@ -2,9 +2,6 @@ export type SessionType = 'practice' | 'qualifying' | 'race' | 'unknown'
 
 /** Feature flags for the current car — detected once per connection from the SDK var map. */
 export interface CarCapabilities {
-  /** Car exposes LFtempL/M/R (live contact-patch surface temps).
-   *  False = only slow carcass temps (LFtempCL/CM/CR) are available. */
-  hasSurfaceTireTemps: boolean
   /** Car exposes dcTractionControl (adjustable TC dial). */
   hasTractionControl: boolean
   /** Car exposes dcABS (adjustable ABS dial). */
@@ -129,5 +126,5 @@ export const EMPTY_TELEMETRY: IRacingTelemetry = {
   abs: { level: 0, active: false },
   cars: [],
   drivers: [],
-  capabilities: { hasSurfaceTireTemps: false, hasTractionControl: false, hasABS: false },
+  capabilities: { hasTractionControl: false, hasABS: false },
 }

@@ -78,13 +78,8 @@ let cachedPlayerCarIdx = 0
 let cachedRedLine = 0  // RPM, from DriverInfo.DriverCarRedLine in session YAML
 const startPositions = new Map<number, number>() // carIdx → grid position (race only)
 
-// Which tire-temp variables this SDK build exposes.
-// 'surface' = LFtempL/M/R  (live contact-patch, fast-changing)
-// 'carcass' = LFtempCL/CM/CR (internal structure, slow-changing)
-let tireTempMode: 'surface' | 'carcass' = 'carcass'
-
 // Feature flags for the current car — reset each time the shared memory is opened.
-let carCapabilities: CarCapabilities = { hasSurfaceTireTemps: false, hasTractionControl: false, hasABS: false }
+let carCapabilities: CarCapabilities = { hasTractionControl: false, hasABS: false }
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -164,8 +159,7 @@ function closeMemory(): void {
   lastSessionInfoVer = -1
   cachedRedLine = 0
   cachedMemType = null  // re-probe size on next connect
-  tireTempMode = 'carcass'
-  carCapabilities = { hasSurfaceTireTemps: false, hasTractionControl: false, hasABS: false }
+  carCapabilities = { hasTractionControl: false, hasABS: false }
 }
 
 function readFullBuffer(): Buffer | null {
@@ -222,15 +216,18 @@ function buildVarMap(buf: Buffer): void {
     const name = buf.subarray(nameStart, nameEnd).toString('ascii')
     if (name) varMap.set(name, { type, offset, count })
   }
-  // Prefer live surface temps (LFtempL/M/R) if exposed by this SDK build;
-  // fall back to slow carcass temps (LFtempCL/CM/CR).
-  tireTempMode = varMap.has('LFtempL') ? 'surface' : 'carcass'
   carCapabilities = {
-    hasSurfaceTireTemps: varMap.has('LFtempL'),
-    hasTractionControl:  varMap.has('dcTractionControl'),
-    hasABS:              varMap.has('dcABS'),
+    hasTractionControl: varMap.has('dcTractionControl'),
+    hasABS:             varMap.has('dcABS'),
   }
-  console.log(`[irsdk] built var map — ${varMap.size} variables, tire temps: ${tireTempMode}` +
+  // Tire temps: iRacing only exposes carcass (internal structure) temps via
+  // the SDK — `LFtempCL/CM/CR` per corner. Live "surface" / contact-patch
+  // temps shown in iRacing's in-car display are computed internally and not
+  // pumped through shared memory. Confirmed empirically across Porsche 911
+  // GT3 R, Porsche 992 Cup, and corroborated by iRacing's published docs
+  // (#69). Read carcass directly; the TireTemps overlay header is labelled
+  // "PIT TIRE TEMPS" so the slow-update nature is obvious to the driver.
+  console.log(`[irsdk] built var map — ${varMap.size} variables` +
     (carCapabilities.hasTractionControl ? ', TC' : '') +
     (carCapabilities.hasABS ? ', ABS' : ''))
 }
@@ -424,21 +421,17 @@ function extractTelemetry(buf: Buffer): IRacingTelemetry {
                           ? rf(buf, D, 'LapDeltaToBestLap')
                           : NaN,
     lapDistPct:         rf(buf, D, 'LapDistPct'),
-    // Tire temps °C — inner/middle/outer zone per corner.
-    // Surface temps (LFtempL/M/R) update live each tick — preferred when available.
-    // Carcass temps (LFtempCL/CM/CR) update slowly (internal heat) — fallback.
-    // tireTempMode is detected once per connection in buildVarMap.
-    ...(tireTempMode === 'surface' ? {
-      tireLF: [rf(buf, D, 'LFtempL'), rf(buf, D, 'LFtempM'), rf(buf, D, 'LFtempR')] as const,
-      tireRF: [rf(buf, D, 'RFtempL'), rf(buf, D, 'RFtempM'), rf(buf, D, 'RFtempR')] as const,
-      tireLR: [rf(buf, D, 'LRtempL'), rf(buf, D, 'LRtempM'), rf(buf, D, 'LRtempR')] as const,
-      tireRR: [rf(buf, D, 'RRtempL'), rf(buf, D, 'RRtempM'), rf(buf, D, 'RRtempR')] as const,
-    } : {
-      tireLF: [rf(buf, D, 'LFtempCL'), rf(buf, D, 'LFtempCM'), rf(buf, D, 'LFtempCR')] as const,
-      tireRF: [rf(buf, D, 'RFtempCL'), rf(buf, D, 'RFtempCM'), rf(buf, D, 'RFtempCR')] as const,
-      tireLR: [rf(buf, D, 'LRtempCL'), rf(buf, D, 'LRtempCM'), rf(buf, D, 'LRtempCR')] as const,
-      tireRR: [rf(buf, D, 'RRtempCL'), rf(buf, D, 'RRtempCM'), rf(buf, D, 'RRtempCR')] as const,
-    }),
+    // Tire temps °C — inner/middle/outer zone per corner. iRacing exposes
+    // only carcass temps (internal structure) via the SDK; live contact-patch
+    // ("surface") temps shown in the in-car display are computed internally
+    // and not pumped through shared memory (verified empirically + via
+    // iRacing docs, #69). Values update slowly while driving; most visible
+    // during pit stops. The TireTemps overlay header is "PIT TIRE TEMPS" so
+    // the slow-update nature is communicated to the driver.
+    tireLF: [rf(buf, D, 'LFtempCL'), rf(buf, D, 'LFtempCM'), rf(buf, D, 'LFtempCR')] as const,
+    tireRF: [rf(buf, D, 'RFtempCL'), rf(buf, D, 'RFtempCM'), rf(buf, D, 'RFtempCR')] as const,
+    tireLR: [rf(buf, D, 'LRtempCL'), rf(buf, D, 'LRtempCM'), rf(buf, D, 'LRtempCR')] as const,
+    tireRR: [rf(buf, D, 'RRtempCL'), rf(buf, D, 'RRtempCM'), rf(buf, D, 'RRtempCR')] as const,
     carLeftRight: ri(buf, D, 'CarLeftRight'),
     tc: {
       // dcTractionControl is the driver-adjustable dial (0 = off).
@@ -472,5 +465,5 @@ const DISCONNECTED: IRacingTelemetry = {
   tc:  { level: 0, active: false },
   abs: { level: 0, active: false },
   cars: [], drivers: [],
-  capabilities: { hasSurfaceTireTemps: false, hasTractionControl: false, hasABS: false },
+  capabilities: { hasTractionControl: false, hasABS: false },
 }
