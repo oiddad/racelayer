@@ -269,7 +269,7 @@ export function createMockPoller() {
       cars:     carsRaw,
       drivers:  MOCK_DRIVERS,
       // Preview mode simulates a car with full capability support
-      capabilities: { hasSurfaceTireTemps: true, hasTractionControl: true, hasABS: true },
+      capabilities: { hasTractionControl: true, hasABS: true },
     }
   }
 

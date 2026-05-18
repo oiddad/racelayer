@@ -66,11 +66,12 @@ export default function TireTemps() {
 
   const sType = t.sessionType === 'unknown' ? 'practice' : t.sessionType
 
-  // Auto-hide if the connected car doesn't expose surface tire temps and the
-  // user hasn't disabled the smart-hide behaviour. Still show in edit mode so
-  // the overlay can be positioned before a supported car is loaded.
-  const unsupported = t.connected && !t.capabilities.hasSurfaceTireTemps
-  if ((!config.tireTemps.enabled[sType] || (unsupported && config.global.hideUnsupportedElements)) && !editMode) return null
+  // Always show when the user has the overlay enabled. iRacing only exposes
+  // internal tire carcass temps via the SDK — see iracingSdk.ts and #69 — so
+  // the values change slowly and become noticeable mostly during pit stops.
+  // The header reads "PIT TYRE TEMPS" so that's clear to the driver; there's
+  // no live-temp variant to hide behind a capability flag.
+  if (!config.tireTemps.enabled[sType] && !editMode) return null
 
   // Hide entirely when the driver is in an iRacing menu (garage / get-in-car /
   // replay / spectator). Edit mode bypasses this so overlays can be positioned.
@@ -101,7 +102,12 @@ export default function TireTemps() {
       style={{ cursor: editMode ? (dragging ? 'grabbing' : 'grab') : 'default' }}
     >
       {editMode && <div className={styles.editBanner}>✥ DRAG TO REPOSITION</div>}
-      <div className={styles.header}>TYRE TEMPS</div>
+      <div
+        className={styles.header}
+        title="iRacing only exposes internal tire carcass temperatures via the SDK — live contact-patch temps shown in the in-car display are computed internally and not pumped through shared memory. Values change slowly while driving and are most visible during pit stops."
+      >
+        PIT TYRE TEMPS
+      </div>
       <div className={styles.grid}>
         <TyreCell label="LF" temps={t.tireLF} />
         <TyreCell label="RF" temps={t.tireRF} flip />
