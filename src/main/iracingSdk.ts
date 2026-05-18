@@ -233,6 +233,25 @@ function buildVarMap(buf: Buffer): void {
   console.log(`[irsdk] built var map — ${varMap.size} variables, tire temps: ${tireTempMode}` +
     (carCapabilities.hasTractionControl ? ', TC' : '') +
     (carCapabilities.hasABS ? ', ABS' : ''))
+
+  // ── Diagnostic for #69 (temporary) ─────────────────────────────────────────
+  // Some cars (Porsche 911 GT3 R, Porsche 992 Cup) have live tire temps in
+  // their in-car display but `varMap.has('LFtempL')` is false for them — so
+  // we fall back to slow carcass temps and the overlay either hides or shows
+  // pit-only data. The variable name we should be reading is unknown without
+  // empirical data, so this logs every per-corner + temp-related variable
+  // present in the current car's var map. User loads the affected car, the
+  // log captures the names, follow-up PR maps them. Remove once #69 lands.
+  const tireRelated = [...varMap.keys()]
+    .filter((name) =>
+      /^([LR][FR])/.test(name) || /temp/i.test(name)
+    )
+    .sort()
+  console.log(`[irsdk-tire-debug] ${tireRelated.length} tire-related variables present:`)
+  for (const name of tireRelated) {
+    const v = varMap.get(name)!
+    console.log(`  ${name}  (type=${v.type}, count=${v.count})`)
+  }
 }
 
 function parseSessionYaml(buf: Buffer): void {
