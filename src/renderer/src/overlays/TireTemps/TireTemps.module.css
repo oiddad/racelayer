@@ -45,7 +45,21 @@
   letter-spacing: 0.12em;
   color: #94a3b8;
   text-align: center;
-  padding: 6px 0 4px;
+  padding: 6px 0 2px;
+}
+
+/* Subtitle under the header explaining the data character. Always visible —
+ * the overlay is click-through (`setIgnoreMouseEvents`), so native browser
+ * tooltips on the header don't fire reliably. Subtitle conveys the same
+ * info without depending on hover. */
+.subheader {
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  text-align: center;
+  padding: 0 8px 5px;
+  font-style: italic;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 

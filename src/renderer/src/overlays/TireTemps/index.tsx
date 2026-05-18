@@ -102,12 +102,8 @@ export default function TireTemps() {
       style={{ cursor: editMode ? (dragging ? 'grabbing' : 'grab') : 'default' }}
     >
       {editMode && <div className={styles.editBanner}>✥ DRAG TO REPOSITION</div>}
-      <div
-        className={styles.header}
-        title="iRacing only exposes internal tire carcass temperatures via the SDK — live contact-patch temps shown in the in-car display are computed internally and not pumped through shared memory. Values change slowly while driving and are most visible during pit stops."
-      >
-        PIT TYRE TEMPS
-      </div>
+      <div className={styles.header}>PIT TYRE TEMPS</div>
+      <div className={styles.subheader}>updates slowly — refreshes most at pit stops</div>
       <div className={styles.grid}>
         <TyreCell label="LF" temps={t.tireLF} />
         <TyreCell label="RF" temps={t.tireRF} flip />
