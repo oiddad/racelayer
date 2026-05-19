@@ -170,6 +170,7 @@ This was the v0.1.3 fix for overlays appearing in menus. Re-verify on every rele
   - Easiest to verify in Preview Mode with the mock 30-lap race: as `state.currentLap` climbs past ~28, the row flips to "Finish on fuel".
   - In a live race, verify near the checkered flag.
 - [ ] **Timed-race graceful fallback** — in a timed (non-lap-counted) session, `sessionLapsRemain` returns a sentinel (`-1` or `32767`). The pit window should fall back to the pre-#12 behaviour: just "Pit by Lap N (in M laps)" with no finish-on-fuel branch.
+- [ ] **Final lap stays "Finish on fuel" (#70)** — in a race that's hit "Finish on fuel" earlier, the row must STAY green when the player crosses onto the final lap and `sessionLapsRemain` transitions to `0`. Pre-#70 the headline flipped back to "Pit in N laps" at this transition because `0` was being classified as a sentinel. Verify in any race scenario where the player can drive long enough to reach the white flag with fuel to spare.
 
 #### Pit-affected lap filtering
 - [ ] Make a pit stop. The in-lap and the lap after rejoining (out-lap) should NOT appear in the stint — `Stint of N` resets to 0 then climbs back from 1 on the next clean lap.

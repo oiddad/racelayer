@@ -316,6 +316,68 @@ describe('computeFuelStats', () => {
     expect(stats.lapsLeftInRace).toBe(5)
     expect(stats.finishOnFuel).toBe(true)
   })
+
+  describe('sessionLapsRemain === 0 (race over for this car) — #70', () => {
+    // At the start of the final lap of a timed race, iRacing transitions
+    // sessionLapsRemain from a small positive integer to 0 for this car.
+    // The pre-#70 `>= 1` cutoff classified that as "no info" and flipped
+    // the headline from green "Finish on fuel" back to "Pit in N laps"
+    // even though the race was already done for the player.
+
+    it('treats 0 as race-over → finishOnFuel = true, urgency = finish', () => {
+      const stats = computeFuelStats({
+        samples: [2.0],
+        fuelLevel: 35,
+        fuelUsePerHour: 0,
+        currentLap: 5,
+        lapLastLapTime: 90,
+        sessionLapsRemain: 0,
+      })
+      expect(stats.lapsLeftInRace).toBe(0)
+      expect(stats.finishOnFuel).toBe(true)
+      expect(stats.urgency).toBe('finish')
+      expect(stats.pitLap).toBeNull()
+      expect(stats.lapsUntilPit).toBeNull()
+    })
+
+    it('treats 0 as race-over even without a fuel estimate', () => {
+      // No samples, no live rate — fuel info is unknown. We still want
+      // finishOnFuel=true because the race is over regardless of fuel.
+      const stats = computeFuelStats({
+        samples: [],
+        fuelLevel: 5,
+        fuelUsePerHour: 0,
+        currentLap: 5,
+        lapLastLapTime: 0,
+        sessionLapsRemain: 0,
+      })
+      expect(stats.lapsLeftInRace).toBe(0)
+      expect(stats.finishOnFuel).toBe(true)
+      expect(stats.urgency).toBe('finish')
+    })
+
+    it('sessionLapsRemain === 1 (white-flag lap in progress) → finishOnFuel if fuel covers', () => {
+      // Boundary above 0: 1 lap remains, fuel covers many more laps.
+      const stats = computeFuelStats({
+        samples: [2.0],
+        fuelLevel: 35,
+        fuelUsePerHour: 0,
+        currentLap: 4,
+        lapLastLapTime: 90,
+        sessionLapsRemain: 1,
+      })
+      expect(stats.lapsLeftInRace).toBe(1)
+      expect(stats.finishOnFuel).toBe(true)
+    })
+
+    it('still rejects -1 (timed-race sentinel) — distinct from 0', () => {
+      // Defence against regressing the sentinel handling while adding the
+      // 0 case. -1 must still be treated as "no info".
+      const stats = computeFuelStats({ ...base, samples: [2.0], sessionLapsRemain: -1 })
+      expect(stats.lapsLeftInRace).toBeNull()
+      expect(stats.finishOnFuel).toBe(false)
+    })
+  })
 })
 
 describe('urgencyFor', () => {

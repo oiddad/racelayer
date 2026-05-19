@@ -130,9 +130,12 @@ export interface FuelInputs {
   /** Most recent completed lap time (seconds).  0 if unknown. */
   lapLastLapTime: number
   /** Laps left in the current session (`IRacingTelemetry.sessionLapsRemain`).
-   *  Values outside `[1, MAX_USABLE_LAPS_REMAIN]` are treated as "not a
-   *  usable lap count" — typically because the session is timed.  Optional
-   *  for backward compat with callers that don't yet pipe it through. */
+   *  Values outside `[0, MAX_USABLE_LAPS_REMAIN]` are treated as "not a
+   *  usable lap count" — typically because the session is timed and the
+   *  leader hasn't seen the checkered yet, so iRacing reports a sentinel
+   *  like `-1` or `32767`.  `0` IS usable and means "the race is over for
+   *  this car" — see `computeFuelStats` for the special-case handling.
+   *  Optional for backward compat with callers that don't yet pipe it through. */
   sessionLapsRemain?: number
 }
 
@@ -252,17 +255,32 @@ export function computeFuelStats({
   const lapsOnFuel = hasReliableEstimate && fuelPerLap > 0 ? fuelLevel / fuelPerLap : 0
 
   // Race-endpoint awareness.  `sessionLapsRemain` is only trusted when it's
-  // a plausible integer lap count — timed races emit sentinels (typically
-  // `-1` or `32767`) which we deliberately classify as "no info".
+  // a plausible non-negative integer lap count — timed races emit sentinels
+  // (typically `-1` or `32767`) which we deliberately classify as "no info".
+  //
+  // `0` is accepted because iRacing reports it when this car has crossed the
+  // line for the last time in the session — i.e. the race is over for them.
+  // See #70: at the start of the final lap of a timed race, `sessionLapsRemain`
+  // can transition from `1` to `0` while the player is still rolling, and the
+  // old `>= 1` cutoff dropped that tick into "no-info" land — which flipped
+  // the headline from green "Finish on fuel" back to "Pit in N laps" using
+  // the still-plentiful fuel estimate.
   const lapsLeftInRace =
     typeof sessionLapsRemain === 'number'
       && Number.isFinite(sessionLapsRemain)
-      && sessionLapsRemain >= 1
+      && sessionLapsRemain >= 0
       && sessionLapsRemain <= MAX_USABLE_LAPS_REMAIN
       ? Math.floor(sessionLapsRemain)
       : null
 
-  const finishOnFuel = lapsLeftInRace !== null && lapsOnFuel > 0 && lapsLeftInRace <= lapsOnFuel
+  // `finishOnFuel` is true when:
+  //   - The race is already over for this car (`lapsLeftInRace === 0`) —
+  //     no pit needed regardless of fuel level, OR
+  //   - We have a fuel estimate AND it covers the remaining race laps.
+  const finishOnFuel = lapsLeftInRace !== null && (
+    lapsLeftInRace === 0
+      || (lapsOnFuel > 0 && lapsLeftInRace <= lapsOnFuel)
+  )
 
   // `pitLap` / `lapsUntilPit` are null when:
   //   - There's no reliable fuel estimate, OR
