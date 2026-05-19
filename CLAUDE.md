@@ -299,6 +299,17 @@ Capabilities are reset to `false` in `closeMemory()`. The renderer receives them
 - `2` = AproachingPits
 - `3` = OnTrack ← use this for `onTrack: true`
 
+**SessionState enum** (irsdk_SessionState — surfaced as `sessionState` on `IRacingTelemetry`):
+- `0` = Invalid
+- `1` = GetInCar
+- `2` = Warmup
+- `3` = ParadeLaps
+- `4` = Racing ← use this to detect "actively racing"
+- `5` = Checkered ← race over for the field
+- `6` = CoolDown ← race over for the field
+
+`>= 5` is the durable "race is done" signal. `SessionLapsRemain` is not safe to rely on for race-over detection — it can transition `1 → 0` during the player's final lap (#70) AND can revert to a stale positive integer once the cool-down session begins (#70 follow-up: a 9-lap race that finished with `SessionLapsRemain` resurfaced as `9`). Pit Strategy's `computeFuelStats()` latches `finishOnFuel = true` on `sessionState >= 5` so the green affordance can't flip back to "Pit in N laps" after the checkered.
+
 **Position in practice:** `CarIdxPosition` returns `0` in practice sessions (no race classification). Show `--` instead of `P0`.
 
 **f2Time:** `CarIdxF2Time` — seconds relative to player. Negative = car is ahead of player. **Unreliable in practice sessions** (returns 0 for cars without a set lap time). The Relative overlay replaces it with a `lapDistPct`-based calculation:

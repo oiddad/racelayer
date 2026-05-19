@@ -398,6 +398,12 @@ function extractTelemetry(buf: Buffer): IRacingTelemetry {
     // missing-on-this-build returns -1 (the "not available" sentinel) rather
     // than 0 (which would look like a finished race).
     sessionLapsRemain:  varMap.has('SessionLapsRemain') ? ri(buf, D, 'SessionLapsRemain') : -1,
+    // `SessionState`: irsdk enum — 0 Invalid, 1 GetInCar, 2 Warmup,
+    // 3 ParadeLaps, 4 Racing, 5 Checkered, 6 CoolDown. Surface raw so
+    // overlays (PitStrategy, in particular) can latch on `>= 5` to know
+    // the race has ended for the field, independent of how
+    // `SessionLapsRemain` behaves post-checkered. See #70 follow-up.
+    sessionState:       sessionState,
     playerCarIdx:       cachedPlayerCarIdx,
     playerCarRedLine:   cachedRedLine,
     // `ShiftIndicatorPct` may not be present on every car / build of the SDK.
@@ -453,7 +459,7 @@ function extractTelemetry(buf: Buffer): IRacingTelemetry {
 
 const DISCONNECTED: IRacingTelemetry = {
   connected: false, isOnTrack: false, sessionType: 'unknown',
-  sessionTime: 0, sessionTimeRemain: 0, sessionLapsRemain: -1,
+  sessionTime: 0, sessionTimeRemain: 0, sessionLapsRemain: -1, sessionState: 0,
   playerCarIdx: 0, playerCarRedLine: 0,
   shiftIndicatorPct: NaN,
   speed: 0, gear: 0, rpm: 0, throttle: 0, brake: 0,

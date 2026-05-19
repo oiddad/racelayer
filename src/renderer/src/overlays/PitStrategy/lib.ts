@@ -137,7 +137,20 @@ export interface FuelInputs {
    *  this car" — see `computeFuelStats` for the special-case handling.
    *  Optional for backward compat with callers that don't yet pipe it through. */
   sessionLapsRemain?: number
+  /** iRacing's `SessionState` enum.  Values `>= RACE_OVER_SESSION_STATE`
+   *  (Checkered, CoolDown) mean the race is over for the whole field —
+   *  `finishOnFuel` latches true on this signal so the headline can't flip
+   *  back to "Pit in N laps" if `sessionLapsRemain` reverts post-checkered
+   *  (which it can, depending on how iRacing transitions through cool-down).
+   *  Optional for backward compat with callers / tests. */
+  sessionState?: number
 }
+
+/** Lower bound of `SessionState` values that mean "the race is done for the
+ *  whole field" — Checkered (5) and CoolDown (6).  Below this is either
+ *  pre-race (GetInCar / Warmup / ParadeLaps) or actively racing (Racing = 4);
+ *  neither should force the finish-on-fuel affordance on its own. */
+export const RACE_OVER_SESSION_STATE = 5
 
 /** Urgency tier for the Pit Window display.  Drives the colour ramp + which
  *  copy variant the UI shows.  See `urgencyFor()` for the threshold math. */
@@ -224,11 +237,12 @@ export function pitCountdownLabel(lapsUntilPit: number | null): string | null {
  *   2. Live `fuelUsePerHour × lapTime` (reasonable while actually driving).
  *   3. No estimate — return zeros so the UI can render `--` instead of garbage.
  *
- * When `sessionLapsRemain` is in the usable range, the function also computes
- * race-endpoint awareness (#12): if the race ends before fuel runs out,
- * `pitLap` / `lapsUntilPit` are nulled and `finishOnFuel` is set so the UI
- * shows a green "Finish on fuel" affordance instead of a misleading
- * fuel-forced pit-by lap that's *after* the checkered flag.
+ * When `sessionLapsRemain` is in the usable range OR `sessionState` is
+ * Checkered / CoolDown, the function also computes race-endpoint awareness
+ * (#12 / #70): if the race ends before fuel runs out, `pitLap` /
+ * `lapsUntilPit` are nulled and `finishOnFuel` is set so the UI shows a
+ * green "Finish on fuel" affordance instead of a misleading fuel-forced
+ * pit-by lap that's *after* the checkered flag.
  *
  * Pure function: caller is responsible for maintaining the rolling samples ref.
  */
@@ -239,6 +253,7 @@ export function computeFuelStats({
   currentLap,
   lapLastLapTime,
   sessionLapsRemain,
+  sessionState,
 }: FuelInputs): FuelStats {
   let fuelPerLap = 0
   let hasReliableEstimate = false
@@ -273,14 +288,29 @@ export function computeFuelStats({
       ? Math.floor(sessionLapsRemain)
       : null
 
-  // `finishOnFuel` is true when:
+  // SessionState >= 5 (Checkered / CoolDown) is the field-wide "race is over"
+  // signal — latch it independently of `sessionLapsRemain`, because iRacing
+  // can revert `SessionLapsRemain` to a stale positive integer or sentinel
+  // once the cool-down session begins. #70 follow-up: a user observed a
+  // 9-lap race where after the checkered the headline flipped from
+  // "Finish on fuel" back to "Pit in 9 laps" because SessionLapsRemain
+  // resurfaced as ~9 in cool-down.
+  const sessionEnded =
+    typeof sessionState === 'number'
+      && Number.isFinite(sessionState)
+      && sessionState >= RACE_OVER_SESSION_STATE
+
+  // `finishOnFuel` is true when ANY of:
+  //   - The session has ended for the whole field (`sessionState >= 5`), OR
   //   - The race is already over for this car (`lapsLeftInRace === 0`) —
   //     no pit needed regardless of fuel level, OR
   //   - We have a fuel estimate AND it covers the remaining race laps.
-  const finishOnFuel = lapsLeftInRace !== null && (
-    lapsLeftInRace === 0
-      || (lapsOnFuel > 0 && lapsLeftInRace <= lapsOnFuel)
-  )
+  const finishOnFuel =
+    sessionEnded
+      || (lapsLeftInRace !== null && (
+        lapsLeftInRace === 0
+          || (lapsOnFuel > 0 && lapsLeftInRace <= lapsOnFuel)
+      ))
 
   // `pitLap` / `lapsUntilPit` are null when:
   //   - There's no reliable fuel estimate, OR

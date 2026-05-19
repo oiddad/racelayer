@@ -54,6 +54,17 @@ export interface IRacingTelemetry {
    *  awareness at all.  See `PitStrategy/lib.ts` → `computeFuelStats()`
    *  for the canonical guard. */
   sessionLapsRemain: number
+  /** iRacing's `SessionState` enum — describes the overall session phase
+   *  rather than this car's progress.  Values:
+   *    `0` Invalid | `1` GetInCar | `2` Warmup | `3` ParadeLaps |
+   *    `4` Racing  | `5` Checkered | `6` CoolDown
+   *
+   *  Values `5` and `6` mean the race is over for the whole field —
+   *  consumers should latch any race-over UI state on `sessionState >= 5`
+   *  even if `sessionLapsRemain` post-race transitions back to a sentinel
+   *  or a stale positive integer.  See `PitStrategy/lib.ts` →
+   *  `computeFuelStats()` for the canonical handling (#70 follow-up). */
+  sessionState: number
 
   playerCarIdx: number
   playerCarRedLine: number  // RPM at rev limiter (from session YAML DriverCarRedLine)

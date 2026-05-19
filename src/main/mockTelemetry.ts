@@ -227,6 +227,10 @@ export function createMockPoller() {
       // they've completed 28 laps (sessionLapsRemain ≤ ~2) the Pit Window
       // section should flip from "Pit by Lap X" to "Finish on fuel".
       sessionLapsRemain: Math.max(0, 30 - state.currentLap[PLAYER_CAR_IDX]),
+      // Mock is always "actively racing" (irsdk_SessionState = 4). Real
+      // SDK reads this from `SessionState`; PitStrategy treats `>= 5`
+      // (Checkered / CoolDown) as race-over per #70 follow-up.
+      sessionState: 4,
 
       playerCarIdx: PLAYER_CAR_IDX,
       playerCarRedLine: 9400, // Porsche 992 GT3 Cup

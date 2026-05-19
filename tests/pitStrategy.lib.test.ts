@@ -378,6 +378,98 @@ describe('computeFuelStats', () => {
       expect(stats.finishOnFuel).toBe(false)
     })
   })
+
+  describe('sessionState >= 5 (Checkered / CoolDown) — #70 follow-up', () => {
+    // After the checkered, iRacing can revert `sessionLapsRemain` to a
+    // stale positive integer or sentinel as the field transitions into
+    // cool-down. SessionState is the durable signal: 5 = Checkered,
+    // 6 = CoolDown — both mean the race is over for the field, and the
+    // Pit Strategy headline should stay green "Finish on fuel" regardless
+    // of what SessionLapsRemain does next.
+
+    it('sessionState = 5 (Checkered) latches finishOnFuel even with stale sessionLapsRemain', () => {
+      // Reproduces the user-reported scenario: 9-lap race finishes,
+      // SessionLapsRemain resurfaces as 9, fuel-only calc would say
+      // "Pit in 9 laps". SessionState >= 5 short-circuits that.
+      const stats = computeFuelStats({
+        samples: [2.0],
+        fuelLevel: 19.6,      // ~9.8 laps of fuel (matches the screenshot)
+        fuelUsePerHour: 0,
+        currentLap: 9,
+        lapLastLapTime: 90,
+        sessionLapsRemain: 9, // stale, post-race; would otherwise drive "Pit in 9 laps"
+        sessionState: 5,
+      })
+      expect(stats.finishOnFuel).toBe(true)
+      expect(stats.urgency).toBe('finish')
+      expect(stats.pitLap).toBeNull()
+      expect(stats.lapsUntilPit).toBeNull()
+    })
+
+    it('sessionState = 6 (CoolDown) also latches finishOnFuel', () => {
+      const stats = computeFuelStats({
+        samples: [2.0],
+        fuelLevel: 30,
+        fuelUsePerHour: 0,
+        currentLap: 9,
+        lapLastLapTime: 90,
+        sessionLapsRemain: -1, // sentinel — would otherwise be "no info"
+        sessionState: 6,
+      })
+      expect(stats.finishOnFuel).toBe(true)
+      expect(stats.urgency).toBe('finish')
+    })
+
+    it('sessionState = 4 (Racing) does NOT force finish — falls back to fuel/laps math', () => {
+      // Mid-race state must behave like #12: pit-forced calc when fuel
+      // can't cover the remaining laps.
+      const stats = computeFuelStats({
+        samples: [2.0],
+        fuelLevel: 4,
+        fuelUsePerHour: 0,
+        currentLap: 22,
+        lapLastLapTime: 90,
+        sessionLapsRemain: 8,
+        sessionState: 4,
+      })
+      expect(stats.finishOnFuel).toBe(false)
+      expect(stats.pitLap).toBe(23)
+      expect(stats.urgency).toBe('danger')
+    })
+
+    it('omitting sessionState is backward-compatible (#12-era callers)', () => {
+      // Tests + callers that haven't been updated yet should get the
+      // same behaviour as before this PR — race-over decided purely by
+      // sessionLapsRemain.
+      const stats = computeFuelStats({
+        samples: [2.0],
+        fuelLevel: 4,
+        fuelUsePerHour: 0,
+        currentLap: 22,
+        lapLastLapTime: 90,
+        sessionLapsRemain: 8,
+      })
+      expect(stats.finishOnFuel).toBe(false)
+      expect(stats.urgency).toBe('danger')
+    })
+
+    it('sessionState in pre-race phases (Warmup, ParadeLaps) does NOT force finish', () => {
+      // States 0-3 must behave neutrally — the pre-race grid isn't a
+      // race-over signal even though it's not state 4.
+      for (const preRaceState of [0, 1, 2, 3]) {
+        const stats = computeFuelStats({
+          samples: [2.0],
+          fuelLevel: 4,
+          fuelUsePerHour: 0,
+          currentLap: 1,
+          lapLastLapTime: 0,
+          sessionLapsRemain: 10,
+          sessionState: preRaceState,
+        })
+        expect(stats.finishOnFuel, `state=${preRaceState}`).toBe(false)
+      }
+    })
+  })
 })
 
 describe('urgencyFor', () => {
