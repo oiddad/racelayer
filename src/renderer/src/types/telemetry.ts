@@ -50,6 +50,14 @@ export interface IRacingTelemetry {
    *  races; a sentinel (`-1` or `32767`) for timed races.  See
    *  `src/main/telemetry.ts` for the canonical guard semantics. */
   sessionLapsRemain: number
+  /** iRacing's `SessionState` enum — overall session phase, not this car's
+   *  progress.  `0` Invalid | `1` GetInCar | `2` Warmup | `3` ParadeLaps |
+   *  `4` Racing | `5` Checkered | `6` CoolDown.  `>= 5` means the race is
+   *  over for the whole field — Pit Strategy latches the green
+   *  "Finish on fuel" affordance on this signal so the headline can't flip
+   *  back to "Pit in N laps" if `sessionLapsRemain` reverts post-checkered.
+   *  See #70 follow-up. */
+  sessionState: number
 
   playerCarIdx: number
   playerCarRedLine: number  // RPM at rev limiter
@@ -101,6 +109,7 @@ export const EMPTY_TELEMETRY: IRacingTelemetry = {
   sessionTime: 0,
   sessionTimeRemain: 0,
   sessionLapsRemain: -1,
+  sessionState: 0,
   playerCarIdx: 0,
   playerCarRedLine: 0,
   shiftIndicatorPct: NaN,

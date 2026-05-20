@@ -59,10 +59,15 @@ export default function PitStrategy() {
       // urgency colour ramp).  See `computeFuelStats` for the sentinel
       // handling when this is -1 / 32767 in timed races.
       sessionLapsRemain: t.sessionLapsRemain,
+      // #70 follow-up: SessionState >= 5 (Checkered / CoolDown) is the
+      // field-wide race-over signal that latches `finishOnFuel` true even
+      // when iRacing reverts `sessionLapsRemain` to a stale positive
+      // integer in cool-down.
+      sessionState: t.sessionState,
     })
     const stint = computeStintMetrics(stateRef.current.lapHistory)
     return { ...fuel, ...stint }
-  }, [t.fuelLevel, t.fuelUsePerHour, t.lap, t.lapLastLapTime, t.sessionLapsRemain])
+  }, [t.fuelLevel, t.fuelUsePerHour, t.lap, t.lapLastLapTime, t.sessionLapsRemain, t.sessionState])
 
   const editMode = useEditMode()
   const { onMouseDown, dragging } = useDrag(editMode)
