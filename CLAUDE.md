@@ -426,11 +426,13 @@ Default shortcuts:
 `electron-log` is the single sink for everything in the main process. `initLogging()` runs once at app-ready and:
 
 1. Calls `electronLog.initialize()` — sets up renderer-side IPC so renderers can `import log from 'electron-log/renderer'`.
-2. Calls `Object.assign(console, electronLog.functions)` — globally redirects `console.log / .info / .warn / .error / .debug` in the main process through electron-log's transports. **Plain `console.log(...)` in any main-process file lands in `main.log` automatically** — no need to import the scoped logger unless you want a scope tag in the line (see below).
-3. Detects the build tier (`dev` / `prerelease` / `stable` via `app.isPackaged` + the version's `-` prerelease marker) and applies the matching default level: `debug` / `info` / `warn`.
-4. Loads any persisted user override from `<userData>/log-level.json` and applies that instead.
+2. Sets `electronLog.transports.file.resolvePathFn` to route writes to **daily files** — `main-YYYY-MM-DD.log` (#72). The function is called per-write so a session that spans midnight automatically splits across two files; date is local-time so the filename matches the driver's experience.
+3. Calls `Object.assign(console, electronLog.functions)` — globally redirects `console.log / .info / .warn / .error / .debug` in the main process through electron-log's transports. **Plain `console.log(...)` in any main-process file lands in today's `main-YYYY-MM-DD.log` automatically** — no need to import the scoped logger unless you want a scope tag in the line (see below).
+4. Detects the build tier (`dev` / `prerelease` / `stable` via `app.isPackaged` + the version's `-` prerelease marker) and applies the matching default level: `debug` / `info` / `warn`.
+5. Loads any persisted user override from `<userData>/log-level.json` and applies that instead.
+6. Runs a **startup prune** (#72): scans `<userData>/logs/` for files matching the `main-YYYY-MM-DD.log` pattern and deletes any whose date is more than `LOG_MAX_AGE_DAYS` (30) calendar days old. Non-matching files in the directory are deliberately left alone — the pure prune function in `src/main/logging.lib.ts` only returns names that match the pattern, so unrelated files (zipped support bundles, the `log-level.json` sidecar) can't be deleted accidentally. Filesystem errors during the prune are logged but never block startup.
 
-Log file location: `<userData>/logs/main.log` — opened from the Settings → Perf HUD pane, or the About pane's "Open log folder" button.
+Log file location: `<userData>/logs/main-YYYY-MM-DD.log` — opened from the Settings → Perf HUD pane, or the About pane's "Open log folder" button. Older days' files sit next to the current one in the same folder until they hit the prune threshold.
 
 **Conventions for main-process modules:**
 - `console.log('[scope] message')` — fine for ad-hoc diagnostics. The bracketed prefix doubles as the scope label.
