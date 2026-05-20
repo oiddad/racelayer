@@ -81,6 +81,50 @@ const startPositions = new Map<number, number>() // carIdx → grid position (ra
 // Feature flags for the current car — reset each time the shared memory is opened.
 let carCapabilities: CarCapabilities = { hasTractionControl: false, hasABS: false }
 
+// ── Diagnostic state for #64 (temporary) ─────────────────────────────────────
+// Remembered cockpit-state struct from the previous tick — used by
+// logCockpitDelta() to log only on state changes (otherwise every poll would
+// emit a line, ~10/sec). Reset in closeMemory() so a fresh session re-logs.
+type CockpitDebugState = {
+  isOnTrack: boolean
+  isInGarage: boolean | null
+  isReplayPlaying: boolean | null
+  isOnTrackCar: boolean | null
+  playerSurface: number
+}
+let prevCockpitDebug: CockpitDebugState | null = null
+
+function surfaceLabel(s: number): string {
+  switch (s) {
+    case -1: return '(NotInWorld)'
+    case 0:  return '(OffTrack)'
+    case 1:  return '(InPitStall)'
+    case 2:  return '(AproachingPits)'
+    case 3:  return '(OnTrack)'
+    default: return '(unknown)'
+  }
+}
+
+function logCockpitDelta(s: CockpitDebugState): void {
+  if (
+    prevCockpitDebug !== null
+    && prevCockpitDebug.isOnTrack       === s.isOnTrack
+    && prevCockpitDebug.isInGarage      === s.isInGarage
+    && prevCockpitDebug.isReplayPlaying === s.isReplayPlaying
+    && prevCockpitDebug.isOnTrackCar    === s.isOnTrackCar
+    && prevCockpitDebug.playerSurface   === s.playerSurface
+  ) return
+  console.log(
+    '[irsdk-cockpit-debug]',
+    'isOnTrack=' + s.isOnTrack,
+    'isInGarage=' + (s.isInGarage === null ? '(missing)' : s.isInGarage),
+    'isReplayPlaying=' + (s.isReplayPlaying === null ? '(missing)' : s.isReplayPlaying),
+    'isOnTrackCar=' + (s.isOnTrackCar === null ? '(missing)' : s.isOnTrackCar),
+    'playerSurface=' + s.playerSurface + ' ' + surfaceLabel(s.playerSurface),
+  )
+  prevCockpitDebug = s
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /** Load koffi and bind Win32 API. Returns false if koffi is not installed. */
@@ -160,6 +204,7 @@ function closeMemory(): void {
   cachedRedLine = 0
   cachedMemType = null  // re-probe size on next connect
   carCapabilities = { hasTractionControl: false, hasABS: false }
+  prevCockpitDebug = null  // diagnostic for #64 — re-log from scratch next session
 }
 
 function readFullBuffer(): Buffer | null {
@@ -230,6 +275,22 @@ function buildVarMap(buf: Buffer): void {
   console.log(`[irsdk] built var map — ${varMap.size} variables` +
     (carCapabilities.hasTractionControl ? ', TC' : '') +
     (carCapabilities.hasABS ? ', ABS' : ''))
+
+  // ── Diagnostic for #64 (temporary) ─────────────────────────────────────────
+  // Note which cockpit-state variables are present in this iRacing build.
+  // The bug report says overlays no longer hide when leaving the cockpit, but
+  // static analysis showed our `IsOnTrack` read + downstream wiring are intact
+  // — so the most likely cause is that `IsOnTrack`'s semantics in this iRacing
+  // build aren't quite what we assumed (e.g. it stays high in the get-in-car
+  // screen). Logging the presence of related vars here, and the live values on
+  // every state change in extractTelemetry(), lets us see the real bit pattern
+  // and choose the right composite check for the fix. Remove once #64 lands.
+  console.log('[irsdk-cockpit-debug] var presence —',
+    'IsOnTrack=' + varMap.has('IsOnTrack'),
+    'IsInGarage=' + varMap.has('IsInGarage'),
+    'IsReplayPlaying=' + varMap.has('IsReplayPlaying'),
+    'IsOnTrackCar=' + varMap.has('IsOnTrackCar'),
+  )
 }
 
 function parseSessionYaml(buf: Buffer): void {
@@ -381,12 +442,25 @@ function extractTelemetry(buf: Buffer): IRacingTelemetry {
     })
   }
 
+  // ── Diagnostic for #64 (temporary) ─────────────────────────────────────────
+  // Read all four "is the driver actually driving?" signals and log on every
+  // state change so we can see which bit iRacing flips on exit-to-garage /
+  // get-in-car / replay. Used to drive the real fix in a follow-up PR.
+  const cockpit: CockpitDebugState = {
+    isOnTrack:       rb(buf, D, 'IsOnTrack'),
+    isInGarage:      varMap.has('IsInGarage')      ? rb(buf, D, 'IsInGarage')      : null,
+    isReplayPlaying: varMap.has('IsReplayPlaying') ? rb(buf, D, 'IsReplayPlaying') : null,
+    isOnTrackCar:    varMap.has('IsOnTrackCar')    ? rb(buf, D, 'IsOnTrackCar')    : null,
+    playerSurface:   surfaces[cachedPlayerCarIdx] ?? -1,
+  }
+  logCockpitDelta(cockpit)
+
   return {
     connected:          true,
     // IsOnTrack is true only when the driver is in their cockpit and the
     // session is live — false in garage, get-in-car screen, replays, and
     // spectator mode. Used by overlays to hide when not actively driving.
-    isOnTrack:          rb(buf, D, 'IsOnTrack'),
+    isOnTrack:          cockpit.isOnTrack,
     sessionType,
     sessionTime:        rd(buf, D, 'SessionTime'),
     sessionTimeRemain:  rd(buf, D, 'SessionTimeRemain'),
