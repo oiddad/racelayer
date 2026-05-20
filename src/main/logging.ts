@@ -127,6 +127,21 @@ export function initLogging(
 
   electronLog.initialize()
 
+  // Route every main-process `console.log / .info / .warn / .error / .debug`
+  // call through electron-log's transports so they land in `main.log`
+  // (#73).  Without this, only `electronLog.info(...)` / `electronLog.scope(...)`
+  // calls reach the file — plain `console.log` lines (`[irsdk] built var map`,
+  // the per-tick diagnostics added in PR #65, etc.) were only printed to the
+  // dev terminal and effectively lost for packaged builds.
+  //
+  // `electronLog.functions` is an object of `{ log, info, warn, error, debug,
+  // verbose, silly }` methods that respect the configured transports + level.
+  // Assigning them onto `console` is the documented v5 recipe for capturing
+  // ambient console output.  Third-party libraries that log via `console.*`
+  // are captured too, which is intentional — we want koffi / electron-builder
+  // / etc. errors in the support bundle when something goes wrong.
+  Object.assign(console, electronLog.functions)
+
   userOverride = loadOverride()
   const tier = detectBuildTier()
   const effective = userOverride ?? defaultLevelFor(tier)
