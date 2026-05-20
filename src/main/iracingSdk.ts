@@ -81,6 +81,13 @@ const startPositions = new Map<number, number>() // carIdx → grid position (ra
 // Feature flags for the current car — reset each time the shared memory is opened.
 let carCapabilities: CarCapabilities = { hasTractionControl: false, hasABS: false }
 
+// Last shared-memory layout we logged, e.g. "1190400/7826".  The layout is
+// constant for a given iRacing build, but `cachedMemType` is reset on every
+// disconnect (`closeMemory`) and on any transient decode error — without this
+// guard the "[irsdk] shared-memory layout" line re-logs on every reconnect.
+// We keep the diagnostic but emit it only when the layout actually changes.
+let loggedMemLayout: string | null = null
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /** Load koffi and bind Win32 API. Returns false if koffi is not installed. */
@@ -189,8 +196,17 @@ function readFullBuffer(): Buffer | null {
 
       const needed = maxOff + bufLen + 512   // tiny tail-padding for safety
       cachedMemType = koffi.array('uint8', needed)
-      console.log(`[irsdk] shared-memory layout: ${(needed / 1024).toFixed(0)} KB ` +
-                  `(data buffers at +${maxOff}, each ${bufLen} B)`)
+
+      // Diagnostic — emitted at `debug` (one-time SDK probe, not worth
+      // file space on stable builds) and de-duped so it doesn't re-log on
+      // every reconnect / decode-error re-probe.  The layout is constant
+      // for a given iRacing build, so in practice this prints once per run.
+      const layoutKey = `${maxOff}/${bufLen}`
+      if (layoutKey !== loggedMemLayout) {
+        loggedMemLayout = layoutKey
+        console.debug(`[irsdk] shared-memory layout: ${(needed / 1024).toFixed(0)} KB ` +
+                      `(data buffers at +${maxOff}, each ${bufLen} B)`)
+      }
     }
 
     return Buffer.from(koffi.decode(memPtr, cachedMemType) as Uint8Array)
