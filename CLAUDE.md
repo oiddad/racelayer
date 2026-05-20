@@ -421,6 +421,24 @@ Default shortcuts:
 - Layout Mode (toggle drag): `Ctrl+Shift+L`
 - Open Settings: `Ctrl+Shift+O`
 
+### Logging (`src/main/logging.ts`)
+
+`electron-log` is the single sink for everything in the main process. `initLogging()` runs once at app-ready and:
+
+1. Calls `electronLog.initialize()` — sets up renderer-side IPC so renderers can `import log from 'electron-log/renderer'`.
+2. Calls `Object.assign(console, electronLog.functions)` — globally redirects `console.log / .info / .warn / .error / .debug` in the main process through electron-log's transports. **Plain `console.log(...)` in any main-process file lands in `main.log` automatically** — no need to import the scoped logger unless you want a scope tag in the line (see below).
+3. Detects the build tier (`dev` / `prerelease` / `stable` via `app.isPackaged` + the version's `-` prerelease marker) and applies the matching default level: `debug` / `info` / `warn`.
+4. Loads any persisted user override from `<userData>/log-level.json` and applies that instead.
+
+Log file location: `<userData>/logs/main.log` — opened from the Settings → Perf HUD pane, or the About pane's "Open log folder" button.
+
+**Conventions for main-process modules:**
+- `console.log('[scope] message')` — fine for ad-hoc diagnostics. The bracketed prefix doubles as the scope label.
+- `const log = electronLog.scope('scope-name'); log.info(...)` — preferred for modules that log frequently (the scope tag is structured rather than embedded in the message, and the scope can be filtered at runtime). `updater.ts` uses this pattern.
+- **Don't** call `console.log` before `initLogging()` has run — those lines pre-date the redirect and only print to the dev terminal. The bootstrap in `index.ts` calls `initLogging()` early enough that this is rarely an issue in practice.
+
+#73 pre-fix: `console.*` calls didn't reach `main.log` because `electronLog.initialize()` only sets up the renderer-side IPC, not the main-process console hijack. The `Object.assign` line above fixes that — added so the `[irsdk-cockpit-debug]` (#65) and `[irsdk-tire-debug]` (#71) diagnostic lines could actually be inspected post-mortem from packaged builds.
+
 ## Packaging
 
 `electron-builder.json5` targets NSIS installer + portable `.exe`. Both in `dist/`.
