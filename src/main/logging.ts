@@ -20,8 +20,13 @@
 
 import { app, shell } from 'electron'
 import { join, dirname } from 'path'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, readdirSync } from 'fs'
 import electronLog from 'electron-log/main'
+import {
+  formatLogFileName,
+  findStaleLogFiles,
+  LOG_MAX_AGE_DAYS,
+} from './logging.lib.js'
 
 /** All electron-log levels we expose in the UI.  Ordered from quietest to
  *  loudest so the segmented control in the Perf HUD reads naturally. */
@@ -127,8 +132,18 @@ export function initLogging(
 
   electronLog.initialize()
 
+  // Daily file rotation (#72): route writes to `main-YYYY-MM-DD.log` so a
+  // long-running session that spans midnight gracefully splits across two
+  // files and a casual log inspection by date is one `ls` away.
+  // `resolvePathFn` is called per-write by electron-log, so the date is
+  // re-evaluated each time and the cutover is automatic.  Set before the
+  // console hijack below so the very first captured `console.*` call lands
+  // in the correctly-named file.
+  electronLog.transports.file.resolvePathFn = (variables) =>
+    join(variables.libraryDefaultDir, formatLogFileName(new Date()))
+
   // Route every main-process `console.log / .info / .warn / .error / .debug`
-  // call through electron-log's transports so they land in `main.log`
+  // call through electron-log's transports so they land in the daily file
   // (#73).  Without this, only `electronLog.info(...)` / `electronLog.scope(...)`
   // calls reach the file — plain `console.log` lines (`[irsdk] built var map`,
   // the per-tick diagnostics added in PR #65, etc.) were only printed to the
@@ -154,6 +169,60 @@ export function initLogging(
     `override=${userOverride ?? 'none'} effective=${effective} ` +
     `version=${app.getVersion()} packaged=${app.isPackaged}`,
   )
+
+  // Prune any `main-YYYY-MM-DD.log` files older than the retention window.
+  // Best-effort: filesystem errors here are non-fatal — we just keep going.
+  pruneOldLogs()
+}
+
+/** Delete any `main-YYYY-MM-DD.log` files in the log folder whose date is
+ *  more than `LOG_MAX_AGE_DAYS` old.  Best-effort and idempotent — runs once
+ *  at startup, called from `initLogging`.
+ *
+ *  Non-matching files in the directory (e.g. older `main.log` /
+ *  `renderer.log` from previous electron-log versions, the
+ *  `log-level.json` user-override file) are deliberately left alone — the
+ *  pure prune function only returns names that match our date pattern, so
+ *  we can't accidentally delete unrelated files.
+ *
+ *  Any error reading the directory or deleting a file is swallowed and
+ *  logged; we never want a prune failure to block app startup. */
+function pruneOldLogs(): void {
+  let folder: string
+  try {
+    folder = getLogFolder()
+  } catch (e) {
+    electronLog.warn('[logging] prune skipped — could not resolve log folder:', (e as Error).message)
+    return
+  }
+
+  let names: string[]
+  try {
+    names = readdirSync(folder)
+  } catch (e) {
+    // ENOENT is normal on first-ever launch (folder hasn't been created yet
+    // because no log has been written).  Anything else is unexpected but
+    // not worth blocking init for.
+    const code = (e as NodeJS.ErrnoException).code
+    if (code !== 'ENOENT') {
+      electronLog.warn(`[logging] prune skipped — readdir(${folder}) failed:`, (e as Error).message)
+    }
+    return
+  }
+
+  const stale = findStaleLogFiles(names, new Date(), LOG_MAX_AGE_DAYS)
+  if (stale.length === 0) return
+
+  let deleted = 0
+  for (const name of stale) {
+    try {
+      unlinkSync(join(folder, name))
+      deleted++
+    } catch (e) {
+      electronLog.warn(`[logging] prune failed for ${name}:`, (e as Error).message)
+    }
+  }
+  electronLog.info(`[logging] pruned ${deleted}/${stale.length} stale log files (older than ${LOG_MAX_AGE_DAYS} days)`)
 }
 
 /** Snapshot of the current logging state.  Cheap; safe to call from IPC
